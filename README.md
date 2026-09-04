@@ -4,7 +4,7 @@
 
 ## 中文
 
-把 Xshell / Tabby / `~/.ssh/config` 的连接配置转成 [rssh](https://github.com/shihuili1218/rssh) 可导入的 JSON。**纯静态页面,全程在浏览器本地完成,零网络请求** — 主机名、用户名、密钥都不会离开你的机器。
+把 Xshell / Tabby / `~/.ssh/config` 的连接配置转成 [rssh](https://github.com/rssh-org/rssh) 可导入的 JSON。**纯静态页面,全程在浏览器本地完成,零网络请求** — 主机名、用户名、密钥都不会离开你的机器。
 
 ### 使用
 
@@ -50,7 +50,7 @@ npm run build  # 产出单文件 dist/index.html
 
 ## English
 
-Converts connection configs from Xshell / Tabby / `~/.ssh/config` into JSON that [rssh](https://github.com/shihuili1218/rssh) can import. **A purely static page — everything runs locally in your browser, zero network requests.** Hostnames, usernames and keys never leave your machine. Toggle Chinese/English in the top-right corner.
+Converts connection configs from Xshell / Tabby / `~/.ssh/config` into JSON that [rssh](https://github.com/rssh-org/rssh) can import. **A purely static page — everything runs locally in your browser, zero network requests.** Hostnames, usernames and keys never leave your machine. Toggle Chinese/English in the top-right corner.
 
 ### Usage
 
