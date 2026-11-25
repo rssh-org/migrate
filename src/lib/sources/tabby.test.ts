@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRsshImport } from "../rssh";
+import { buildRsshImport, MAX_HOPS } from "../rssh";
 import { entryKey, type MigEntry } from "../types";
 import { parseTabby } from "./tabby";
 
@@ -71,14 +71,35 @@ describe("Tabby profile identity", () => {
     expect(errors).toEqual([{ alias: "Target", kind: "unresolved_tabby_jump" }]);
   });
 
+  it.each(["outer-first", "leaf-first"])("applies the hop limit regardless of row order (%s)", (order) => {
+    const profiles = Array.from({ length: MAX_HOPS + 2 }, (_, i) => ({
+      id: `ssh:${i}`,
+      name: `node-${i}`,
+      type: "ssh",
+      options: {
+        host: `node-${i}.invalid`,
+        user: "test",
+        ...(i <= MAX_HOPS ? { jumpHost: `ssh:${i + 1}` } : {}),
+      },
+    }));
+    if (order === "leaf-first") profiles.reverse();
+    const { json, errors } = exportRows(parseTabby(JSON.stringify({ profiles })));
+    expect(errors).toEqual([{ alias: "node-0", kind: "unresolved_tabby_jump" }]);
+    expect(json.profiles).toHaveLength(MAX_HOPS + 1);
+    const byName = new Map(json.profiles.map((p) => [p.name, p]));
+    for (let i = 1; i <= MAX_HOPS; i++) {
+      expect(byName.get(`node-${i}`)!.bastion_profile_id)
+        .toBe(byName.get(`node-${i + 1}`)!.id);
+    }
+    expect(byName.get(`node-${MAX_HOPS + 1}`)!.bastion_profile_id).toBeNull();
+  });
+
   it("does not silently break a bastion cycle into a direct connection", () => {
     const entries = parseTabby(fixture("ssh:gateway:b").replace(
       "port: 2222", 'port: 2222, jumpHost: "ssh:target"',
     ));
     const { json, errors } = exportRows(entries, [entries[2]]);
     expect(json.profiles).toEqual([]);
-    expect(errors.map((e) => e.kind)).toEqual([
-      "unresolved_tabby_jump", "unresolved_tabby_jump",
-    ]);
+    expect(errors).toEqual([{ alias: "Target", kind: "unresolved_tabby_jump" }]);
   });
 });

@@ -83,8 +83,15 @@ class Emitter {
 
   build(selected: Set<string>): RsshImport {
     for (const entry of this.entries) {
-      if (!selected.has(entryKey(entry))) continue; // may still arrive as a bastion
-      if (this.done.has(entryKey(entry))) continue; // imported early as a bastion
+      const key = entryKey(entry);
+      if (!selected.has(key)) continue; // may still arrive as a bastion
+      // Validate the full chain for each selected root before reusing or
+      // mutating the emitter cache. An invalid root must not poison its suffix.
+      if (entry.tabby && !this.hasValidTabbyChain(entry)) {
+        this.errors.push({ alias: entry.alias, kind: "unresolved_tabby_jump" });
+        continue;
+      }
+      if (this.done.has(key)) continue; // imported early as a bastion
       this.importEntry(entry, null, []);
     }
     return {
@@ -92,6 +99,19 @@ class Emitter {
       credentials: this.credentials,
       profiles: this.profiles,
     };
+  }
+
+  private hasValidTabbyChain(root: MigEntry): boolean {
+    let current = root;
+    // A valid chain ends within MAX_HOPS; a cycle never reaches a leaf.
+    for (let hops = 0; hops <= MAX_HOPS; hops++) {
+      const jump = current.tabby?.jump;
+      if (!jump) return true;
+      const next = jump.key === null ? undefined : this.byKey.get(jump.key);
+      if (!next) return false;
+      current = next;
+    }
+    return false;
   }
 
   private importEntry(
