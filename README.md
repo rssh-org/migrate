@@ -12,7 +12,7 @@
 2. 选择来源:
    - **~/.ssh/config** — 单文件。支持 `Host *` 默认段继承、多把 `IdentityFile` 组成的密钥池(下拉选择)、`ProxyJump` 堡垒自动关联(含 `j1,j2` 多跳与 `user@host:port` 形式)。跳板目标没有自己的 Host 块时(只被通配段罩着),按通配段自动补全一行 —— 跳板写法里的 user/port 优先,与 ssh 解析跳板时看到的完全一致。
    - **Xshell** — 选择 `Sessions` 文件夹(可整个目录拖入)。子目录会变成名称前缀。
-   - **Tabby** — `~/.config/tabby/config.yaml`。内置私钥(privateKeys 中粘贴的 PEM)直接迁移进 JSON。
+   - **Tabby** — `~/.config/tabby/config.yaml`。内置私钥(privateKeys 中粘贴的 PEM)直接迁移进 JSON。同名配置会分别保留，跳板优先按 Tabby 配置 ID 关联；如果找不到完整的跳板链，该连接会显示错误且不会被导出。
 3. (可选)挑选私钥文件:按文件名与 IdentityFile 匹配,PEM 内容直接写入 JSON,rssh 导入后即可免重选;未挑选或匹配不到的密钥回退 ssh-agent 认证。
 4. 勾选条目、检查每行的密钥下拉(默认池中第一把,即 OpenSSH 实际先尝试的),生成 JSON。
 5. 在 rssh 中:设置 → 导入导出 → 导入文件。增量合并,不影响已有数据。
@@ -58,7 +58,7 @@ Converts connection configs from Xshell / Tabby / `~/.ssh/config` into JSON that
 2. Pick a source:
    - **~/.ssh/config** — a single file. Supports `Host *` defaults inheritance, identity pools made of multiple `IdentityFile`s (dropdown pick), and automatic `ProxyJump` bastion linking (including `j1,j2` chains and `user@host:port` forms). A jump target with no `Host` block of its own (covered only by wildcards) is synthesized from those wildcard blocks — the user/port written in the jump win, exactly what ssh itself sees when resolving the hop.
    - **Xshell** — pick your `Sessions` folder (dragging the whole directory works). Subfolders become name prefixes.
-   - **Tabby** — `~/.config/tabby/config.yaml`. Embedded private keys (PEMs pasted into privateKeys) migrate straight into the JSON.
+   - **Tabby** — `~/.config/tabby/config.yaml`. Embedded private keys (PEMs pasted into privateKeys) migrate straight into the JSON. Same-name profiles stay separate. Bastions resolve by Tabby profile ID first; a connection with an unresolved bastion chain is reported and omitted from the export.
 3. (Optional) Pick private-key files: they are matched to IdentityFile entries by filename and their PEM content is written into the JSON, so rssh needs no re-picking after import. Unpicked or unmatched keys fall back to ssh-agent auth.
 4. Check entries, review each row's key dropdown (defaults to the first in the pool — the one OpenSSH actually tries first), generate the JSON.
 5. In rssh: Settings → Import/Export → Import file. Merges incrementally; existing data is untouched.

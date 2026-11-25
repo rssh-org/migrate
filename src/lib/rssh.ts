@@ -1,11 +1,11 @@
-import type { MigEntry, RsshCredential, RsshImport, RsshProfile } from "./types";
+import { entryKey, type MigEntry, type RsshCredential, type RsshImport, type RsshProfile } from "./types";
 
 // Mirrors rssh's commands/profile.rs do_import_ssh_entries:
 //   A profile row exists for exactly two reasons —
 //   1. the entry is checked, or
 //   2. it is the bastion of a checked entry (transitively).
 // Bastions resolve before the rows that reference them; `done` means "the
-// alias already has its profile (or failed trying)".
+// entry already has its profile (or failed trying)".
 
 export const MAX_HOPS = 8; // same cap as rssh ssh/bastion.rs
 
@@ -15,7 +15,7 @@ export const INLINE_KEY = "(inline-key)";
 /** lowercase file basename → PEM text, from the user's picked key files */
 export type KeyMap = Map<string, string>;
 
-export type BuildError = { alias: string; kind: "missing_user" | "no_key_content" };
+export type BuildError = { alias: string; kind: "missing_user" | "no_key_content" | "unresolved_tabby_jump" };
 
 export type BuildResult = {
   json: RsshImport;
@@ -70,7 +70,7 @@ class Emitter {
   private inlineLabels = new Map<string, string>();
   private credentials: RsshCredential[] = [];
   private profiles: RsshProfile[] = [];
-  private byAlias = new Map<string, MigEntry>();
+  private byKey = new Map<string, MigEntry>();
 
   constructor(
     private entries: MigEntry[],
@@ -78,13 +78,20 @@ class Emitter {
     private defaultUser: string,
     private errors: BuildError[],
   ) {
-    for (const e of entries) this.byAlias.set(e.alias, e);
+    for (const e of entries) this.byKey.set(entryKey(e), e);
   }
 
   build(selected: Set<string>): RsshImport {
     for (const entry of this.entries) {
-      if (!selected.has(entry.alias)) continue; // may still arrive as a bastion
-      if (this.done.has(entry.alias)) continue; // imported early as a bastion
+      const key = entryKey(entry);
+      if (!selected.has(key)) continue; // may still arrive as a bastion
+      // Validate the full chain for each selected root before reusing or
+      // mutating the emitter cache. An invalid root must not poison its suffix.
+      if (entry.tabby && !this.hasValidTabbyChain(entry)) {
+        this.errors.push({ alias: entry.alias, kind: "unresolved_tabby_jump" });
+        continue;
+      }
+      if (this.done.has(key)) continue; // imported early as a bastion
       this.importEntry(entry, null, []);
     }
     return {
@@ -94,24 +101,50 @@ class Emitter {
     };
   }
 
+  private hasValidTabbyChain(root: MigEntry): boolean {
+    let current = root;
+    // A valid chain ends within MAX_HOPS; a cycle never reaches a leaf.
+    for (let hops = 0; hops <= MAX_HOPS; hops++) {
+      const jump = current.tabby?.jump;
+      if (!jump) return true;
+      const next = jump.key === null ? undefined : this.byKey.get(jump.key);
+      if (!next) return false;
+      current = next;
+    }
+    return false;
+  }
+
   private importEntry(
     entry: MigEntry,
     chainBastion: string | null,
     visited: string[],
   ): string | null {
     const { alias } = entry;
-    if (this.done.has(alias)) return this.done.get(alias) ?? null;
-    if (visited.includes(alias) || visited.length > MAX_HOPS) return null;
-    visited.push(alias);
+    const key = entryKey(entry);
+    if (this.done.has(key)) return this.done.get(key) ?? null;
+    if (visited.includes(key) || visited.length > MAX_HOPS) return null;
+    visited.push(key);
 
-    const bastion = entry.proxyJump
-      ? (this.ensureBastion(entry.proxyJump, visited) ?? chainBastion)
-      : chainBastion;
+    let bastion = chainBastion;
+    const tabbyJump = entry.tabby?.jump;
+    if (tabbyJump) {
+      const hop = tabbyJump.key === null ? undefined : this.byKey.get(tabbyJump.key);
+      bastion = hop ? this.importEntry(hop, null, visited) : null;
+      // Do not export a direct connection or guess a different bastion.
+      if (bastion === null) {
+        this.errors.push({ alias, kind: "unresolved_tabby_jump" });
+        visited.pop();
+        this.done.set(key, null);
+        return null;
+      }
+    } else if (entry.proxyJump) {
+      bastion = this.ensureBastion(entry.proxyJump, visited) ?? chainBastion;
+    }
 
     const credId = this.resolveCredential(entry);
     if (!credId) {
       visited.pop();
-      this.done.set(alias, null);
+      this.done.set(key, null);
       return null;
     }
 
@@ -127,7 +160,7 @@ class Emitter {
     };
     this.profiles.push(profile);
     visited.pop();
-    this.done.set(alias, id);
+    this.done.set(key, id);
     return id;
   }
 
@@ -148,7 +181,7 @@ class Emitter {
     visited: string[],
   ): string | null {
     if (this.done.has(alias)) return this.done.get(alias) ?? null;
-    const entry = this.byAlias.get(alias)
+    const entry = this.byKey.get(alias)
       // ProxyJump may name the hostname rather than the alias
       ?? this.entries.find((e) => e.hostname === alias);
     if (!entry) return null; // unresolved: bastion stays empty, same as rssh
@@ -235,16 +268,17 @@ export function buildRsshImport(opts: {
   defaultUser: string;
 }): BuildResult {
   const errors: BuildError[] = [];
-  // duplicate aliases: first block wins, mirroring rssh's scan
+  // Non-Tabby duplicates keep the first alias, mirroring rssh's scan.
   const deduped: MigEntry[] = [];
   const seen = new Set<string>();
   for (const e of opts.entries) {
-    if (seen.has(e.alias)) continue;
-    seen.add(e.alias);
+    const key = entryKey(e);
+    if (seen.has(key)) continue;
+    seen.add(key);
     deduped.push(e);
   }
   const selected = new Set(
-    opts.selected.filter((s) => deduped.some((e) => e.alias === s)),
+    opts.selected.filter((s) => seen.has(s)),
   );
   const json = new Emitter(deduped, opts.keyMap, opts.defaultUser, errors).build(
     selected,

@@ -36,6 +36,8 @@ const zh = {
   result_title: (p: number, c: number) => `生成完成：${p} 个 Profile、${c} 个凭证`,
   err_missing_user: "没有用户名（填写缺省用户名后重新生成）",
   err_no_key_content: "所选密钥文件未在上方挑选，已回退 ssh-agent",
+  unresolved_tabby_jump: (ref: string) => `无法识别跳板：${ref}`,
+  err_unresolved_tabby_jump: "无法解析完整的 Tabby 跳板链，未导出该配置",
   result_hint:
     "在 rssh 中：设置 → 导入导出 → 导入文件，选择下载的 JSON（增量合并，不动现有数据）。",
   download: "下载 rssh-migrate.json",
@@ -76,6 +78,8 @@ const en: typeof zh = {
   result_title: (p: number, c: number) => `Done: ${p} profiles, ${c} credentials`,
   err_missing_user: "no username (set the default username and regenerate)",
   err_no_key_content: "the chosen key file was not provided above; fell back to ssh-agent",
+  unresolved_tabby_jump: (ref: string) => `Unresolved bastion: ${ref}`,
+  err_unresolved_tabby_jump: "could not resolve the full Tabby bastion chain; profile not exported",
   result_hint:
     "In rssh: Settings → Import/Export → Import file, pick the downloaded JSON (merged incrementally, existing data untouched).",
   download: "Download rssh-migrate.json",
