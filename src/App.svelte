@@ -1,12 +1,12 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { buildRsshImport, INLINE_KEY, type KeyMap } from "./lib/rssh";
+  import { buildRsshImport, INLINE_KEY, type BuildResult, type KeyMap } from "./lib/rssh";
   import { parseSshConfig } from "./lib/sources/sshconfig";
   import { parseXshellSession } from "./lib/sources/xshell";
   import { parseTabby } from "./lib/sources/tabby";
   import { decodeFileBytes, looksLikePem } from "./lib/encoding";
   import { DICTS, noteText, type Lang } from "./lib/i18n";
-  import type { MigEntry, RsshImport } from "./lib/types";
+  import { entryKey, type MigEntry } from "./lib/types";
 
   const INLINE = INLINE_KEY;
   const REPO_URL = "https://github.com/rssh-org/migrate";
@@ -41,7 +41,7 @@
   let defaultUser = $state("");
   let source = $state<{ kind: "ssh" | "xshell" | "tabby"; detail: string } | null>(null);
   let parseErrors = $state<{ kind: "no_xsh" | "tabby_parse" | "file_read"; detail: string }[]>([]);
-  let result = $state<{ json: RsshImport; errors: { alias: string; kind: string }[] } | null>(null);
+  let result = $state<BuildResult | null>(null);
 
   let sourceLabel = $derived(
     !source
@@ -62,14 +62,13 @@
   }
 
   function resetRows(
-    next: MigEntry[],
+    next: MigEntry[] | null,
     src: { kind: "ssh" | "xshell" | "tabby"; detail: string } | null,
     errs: { kind: "no_xsh" | "tabby_parse" | "file_read"; detail: string }[] = [],
   ) {
-    // Svelte keyed-each dies on duplicate keys — enforce first-wins by alias
-    // no matter what a source emits.
+    // Keep first-wins aliases for OpenSSH/Xshell without collapsing Tabby IDs.
     const seen = new Set<string>();
-    entries = next.filter((e) => !seen.has(e.alias) && seen.add(e.alias));
+    entries = (next ?? []).filter((e) => !seen.has(entryKey(e)) && seen.add(entryKey(e)));
     source = src;
     parseErrors = errs;
     selected = new Set(entries.map((_, i) => i));
@@ -190,7 +189,7 @@
     }));
     const out = buildRsshImport({
       entries: payload,
-      selected: entries.filter((_, i) => selected.has(i)).map((e) => e.alias),
+      selected: entries.filter((_, i) => selected.has(i)).map(entryKey),
       keyMap,
       defaultUser: defaultUser.trim(),
     });
@@ -217,7 +216,14 @@
     await navigator.clipboard.writeText(jsonText);
   }
 
-  const bastionOf = (e: MigEntry) => e.proxyJump ?? "—";
+  const entriesByKey = $derived(new Map(entries.map((e) => [entryKey(e), e])));
+  function bastionOf(e: MigEntry) {
+    const jump = e.tabby?.jump;
+    if (!jump) return e.proxyJump ?? "—";
+    const target = jump.key === null ? undefined : entriesByKey.get(jump.key);
+    return target ? `${target.alias} (${target.hostname || target.alias}:${target.port})`
+      : L.unresolved_tabby_jump(jump.reference);
+  }
 
 </script>
 
@@ -285,9 +291,9 @@
         </tr>
       </thead>
       <tbody>
-        {#each entries as e, i (e.alias)}
+        {#each entries as e, i (entryKey(e))}
           <tr class:selected={selected.has(i)} onclick={() => toggle(i)}>
-            <td class="col-check"><input type="checkbox" checked={selected.has(i)} onchange={(ev) => { ev.stopPropagation(); toggle(i); }} /></td>
+            <td class="col-check"><input type="checkbox" checked={selected.has(i)} onclick={(ev) => ev.stopPropagation()} onchange={() => toggle(i)} /></td>
             <td class="alias" title={e.note ? noteText(lang, e.note) : ""}>{e.alias}{#if e.note}<span class="note" title={noteText(lang, e.note)}>!</span>{/if}</td>
             <td class="mono">{e.hostname || "—"}:{e.port}</td>
             <td class="mono">{e.user ?? "—"}</td>
@@ -296,7 +302,7 @@
                 {#each options(e) as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
               </select>
             </td>
-            <td class="mono" title={e.proxyJump ?? ""}>{bastionOf(e)}</td>
+            <td class="mono" title={bastionOf(e)}>{bastionOf(e)}</td>
           </tr>
         {/each}
       </tbody>
@@ -312,7 +318,9 @@
         {#each result.errors as err}
           <li>
             {err.alias}：
-            {err.kind === "missing_user" ? L.err_missing_user : L.err_no_key_content}
+            {err.kind === "missing_user" ? L.err_missing_user
+              : err.kind === "unresolved_tabby_jump" ? L.err_unresolved_tabby_jump
+              : L.err_no_key_content}
           </li>
         {/each}
       </ul>

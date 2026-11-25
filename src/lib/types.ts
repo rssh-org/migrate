@@ -14,7 +14,7 @@ export type MigNote =
 /** One migratable connection, normalized across sources. */
 export type MigEntry = {
   source: SourceKind;
-  /** unique key across the batch — the profile name in rssh */
+  /** Display name in rssh; also the key for non-Tabby sources. */
   alias: string;
   hostname: string;
   port: number;
@@ -25,9 +25,16 @@ export type MigEntry = {
   inlineKeys: string[];
   /** raw ProxyJump value — [user@]host[:port] or comma chain */
   proxyJump: string | null;
+  /** Tabby jumps are single profile references, not OpenSSH ProxyJump chains. */
+  tabby?: {
+    key: string;
+    jump: { reference: string; key: string | null } | null;
+  };
   /** non-fatal parser note shown in the UI */
   note: MigNote | null;
 };
+
+export const entryKey = (entry: MigEntry): string => entry.tabby?.key ?? entry.alias;
 
 // ── rssh import JSON ────────────────────────────────────────────────────
 

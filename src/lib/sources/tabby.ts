@@ -10,7 +10,7 @@ import type { MigEntry } from "../types";
 // PEM text. Paths join the identity pool (matched against the user's picked
 // key files by basename); PEMs migrate losslessly into the rssh JSON secret.
 // Encrypted passwords (vault) are skipped. jumpHost references another
-// profile by name or id and becomes proxyJump.
+// profile by ID (or an unambiguous legacy name).
 
 const isPem = (s: unknown): s is string =>
   typeof s === "string" && s.startsWith("-----BEGIN");
@@ -23,23 +23,29 @@ export function parseTabby(text: string): MigEntry[] {
     (p) => p?.type === "ssh" && typeof p.name === "string",
   );
 
-  // jumpHost may be a profile name or a profile id — normalize both to names
-  const nameById = new Map<string, string>();
-  for (const p of profiles) {
-    if (typeof p.id === "string") nameById.set(p.id, p.name as string);
-  }
-  const resolveJump = (j: unknown): string | null => {
-    if (typeof j !== "string" || j === "") return null;
-    return nameById.get(j) ?? j;
-  };
+  // IDs take precedence over legacy names. Never choose the first match for
+  // an ambiguous reference, and keep even ID-less rows separately selectable.
+  const byId = new Map<string, number | null>();
+  const byName = new Map<string, number | null>();
+  const index = (map: Map<string, number | null>, value: string, i: number) =>
+    map.set(value, map.has(value) ? null : i);
+  profiles.forEach((p, i) => {
+    if (typeof p.id === "string" && p.id) index(byId, p.id, i);
+    index(byName, p.name as string, i);
+  });
+  const keysByRow = profiles.map((p, i) =>
+    typeof p.id === "string" && byId.get(p.id) === i
+      ? `tabby:id:${p.id}`
+      : `tabby:row:${i}`,
+  );
 
-  const entries: MigEntry[] = [];
-  const seen = new Set<string>();
-  for (const p of profiles) {
+  return profiles.map((p, i) => {
     const o = (p.options ?? {}) as Record<string, unknown>;
     const alias = p.name as string;
-    if (seen.has(alias)) continue;
-    seen.add(alias);
+    const reference = typeof o.jumpHost === "string" && o.jumpHost ? o.jumpHost : null;
+    const target = reference === null
+      ? null
+      : byId.has(reference) ? byId.get(reference) : byName.get(reference);
     const host = typeof o.host === "string" ? o.host : "";
     const user = typeof o.user === "string" && o.user !== "" ? o.user : null;
     const keys = Array.isArray(o.privateKeys)
@@ -50,7 +56,7 @@ export function parseTabby(text: string): MigEntry[] {
     const identityFiles = [
       ...new Set(keys.filter((k) => !isPem(k)).map(expand)),
     ];
-    entries.push({
+    return {
       source: "tabby",
       alias,
       hostname: host,
@@ -58,9 +64,15 @@ export function parseTabby(text: string): MigEntry[] {
       user,
       identityFiles,
       inlineKeys: keys.filter(isPem),
-      proxyJump: resolveJump(o.jumpHost),
+      proxyJump: null,
+      tabby: {
+        key: keysByRow[i],
+        jump: reference === null ? null : {
+          reference,
+          key: target == null ? null : keysByRow[target],
+        },
+      },
       note: o.auth === "password" ? { kind: "password" } : null,
-    });
-  }
-  return entries;
+    };
+  });
 }

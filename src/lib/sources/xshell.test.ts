@@ -97,7 +97,7 @@ describe("parseTabby", () => {
     expect(web1.inlineKeys[0]).toContain("-----BEGIN");
     // %h/%r tokens expand to the profile's host/user like Tabby's session does
     expect(entries[1].identityFiles).toEqual(["~/.ssh/keys/10.0.0.9/id_rsa"]);
-    expect(entries[2].proxyJump).toBe("web1");
+    expect(entries[2].tabby?.jump?.key).toBe(entries[0].tabby?.key);
     expect(entries[2].note).toEqual({ kind: "password" });
   });
 });
